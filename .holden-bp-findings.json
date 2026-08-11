@@ -1,0 +1,97 @@
+{
+  "scan_date": "2026-08-11T00:00:00Z",
+  "scan_path": ".",
+  "findings": [
+    {
+      "id": "HOLDEN_BP_001",
+      "status": "fixed",
+      "first_seen": "2026-08-11",
+      "last_seen": "2026-08-11",
+      "principle": "maintainability",
+      "severity": "LOW",
+      "confidence": "high",
+      "title": "machine_type is hardcoded to \"n1-standard-4\" identically in 3 separate files, with no variable",
+      "file": "google_notebooks_instance.main.tf",
+      "line": 6,
+      "resource": "google_notebooks_instance.main, google_notebooks_runtime.main, google_workbench_instance.main",
+      "explanation": "The same literal \"n1-standard-4\" is duplicated in google_notebooks_instance.main.tf:6, google_notebooks_runtime.main.tf:8, and google_workbench_instance.main.tf:8. A caller who needs a larger machine (e.g. for GPU-adjacent memory-heavy notebooks) or a smaller one (cost-sensitive dev environment) cannot right-size any of the three resources without forking the module \u00e2\u20ac\u201d there is no lever exposed on the module's public interface.",
+      "remediation": "Add a variable (e.g. machine_type, default \"n1-standard-4\") and reference var.machine_type in all three resources instead of the literal.",
+      "fixable": true,
+      "fix": "variable \"machine_type\" {\n  type        = string\n  description = \"Machine type for the notebook instance, runtime, and Workbench VM\"\n  default     = \"n1-standard-4\"\n}\n\n# then replace machine_type = \"n1-standard-4\" with machine_type = var.machine_type in all three resource files"
+    },
+    {
+      "id": "HOLDEN_BP_002",
+      "status": "fixed",
+      "first_seen": "2026-08-11",
+      "last_seen": "2026-08-11",
+      "principle": "maintainability",
+      "severity": "LOW",
+      "confidence": "high",
+      "title": "Resource names are hardcoded, so the module cannot be instantiated twice in the same project",
+      "file": "google_notebooks_instance.main.tf",
+      "line": 5,
+      "resource": "google_notebooks_instance.main, google_notebooks_runtime.main, google_workbench_instance.main, google_service_account.notebooks",
+      "explanation": "name = \"legacy-notebook\" / \"managed-runtime\" / \"workbench-instance\" and account_id = \"notebooks-sa\" are all literal, unparameterized strings. GCP requires these names to be unique within their scope (project/location), so calling this module a second time in the same project (e.g. a second team, or a dev+staging pair in one project) fails on a name collision. There is no name_prefix or equivalent input to avoid this.",
+      "remediation": "Add a name_prefix variable (default could reuse one of the current literals for backward compatibility) and interpolate it into every name/account_id in the module. Note: changing an already-deployed name value forces replacement of that resource (name is not updatable in place for these types), so this needs a deliberate decision, not a silent default-on fix, for anyone with an existing deployment.",
+      "fixable": true,
+      "fix": "variable \"name_prefix\" {\n  type        = string\n  description = \"Prefix applied to all resource names created by this module, so it can be instantiated more than once per project\"\n  default     = \"\"\n}\n\n# then e.g. name = \"${var.name_prefix}legacy-notebook\" in each resource"
+    },
+    {
+      "id": "HOLDEN_BP_003",
+      "status": "fixed",
+      "first_seen": "2026-08-11",
+      "last_seen": "2026-08-11",
+      "principle": "maintainability",
+      "severity": "LOW",
+      "confidence": "high",
+      "title": "No lifecycle.prevent_destroy on any of the three compute resources, unlike the KMS key",
+      "file": "google_notebooks_runtime.main.tf",
+      "line": 1,
+      "resource": "google_notebooks_instance.main, google_notebooks_runtime.main, google_workbench_instance.main",
+      "explanation": "example/examplea's google_kms_crypto_key already uses lifecycle { prevent_destroy = true }, but none of the three compute resources this module creates do. google_notebooks_runtime.main's data_disk also sets auto_delete = true, so an accidental terraform destroy or a forced replacement (e.g. from a future change to an immutable attribute) silently deletes the underlying disk along with any interactive work or local files that were never synced elsewhere.",
+      "remediation": "Add lifecycle { prevent_destroy = true } to all three compute resources, matching the convention already established for the KMS key.",
+      "fixable": true,
+      "fix": "lifecycle {\n  prevent_destroy = true\n}"
+    },
+    {
+      "id": "HOLDEN_BP_004",
+      "status": "fixed",
+      "first_seen": "2026-08-11",
+      "last_seen": "2026-08-11",
+      "principle": "cost",
+      "severity": "LOW",
+      "confidence": "medium",
+      "title": "google_workbench_instance has no idle-shutdown configured, unlike google_notebooks_runtime",
+      "file": "google_workbench_instance.main.tf",
+      "line": 7,
+      "resource": "google_workbench_instance.main",
+      "explanation": "google_notebooks_runtime.main defaults to idle_shutdown = true with a 180-minute timeout even though software_config is never set on it (confirmed against the provider schema) \u00e2\u20ac\u201d that resource is already safe by default. google_workbench_instance has no equivalent first-class attribute; Workbench's idle-shutdown is configured via instance metadata (the \"idle-timeout-seconds\" key), which this resource's gce_setup.metadata is never set. An interactive Workbench VM left running overnight or over a weekend accrues compute cost with no automatic stop.",
+      "remediation": "Set gce_setup.metadata = { \"idle-timeout-seconds\" = \"10800\" } (3 hours, adjust to taste) on google_workbench_instance.main.",
+      "fixable": true,
+      "fix": "gce_setup {\n  metadata = {\n    \"idle-timeout-seconds\" = \"10800\"\n  }\n  # ...\n}"
+    },
+    {
+      "id": "HOLDEN_BP_005",
+      "status": "fixed",
+      "first_seen": "2026-08-11",
+      "last_seen": "2026-08-11",
+      "principle": "cost",
+      "severity": "INFO",
+      "confidence": "high",
+      "title": "data_disk size and type are hardcoded on the runtime, with no variable",
+      "file": "google_notebooks_runtime.main.tf",
+      "line": 17,
+      "resource": "google_notebooks_runtime.main",
+      "explanation": "disk_size_gb = 100 and disk_type = \"PD_STANDARD\" are literals with no way for a caller to adjust them \u00e2\u20ac\u201d either to shrink for a lightweight/cost-sensitive workload or to size up for large datasets, without forking the module.",
+      "remediation": "Expose data_disk_size_gb (default 100) and data_disk_type (default \"PD_STANDARD\") variables and reference them.",
+      "fixable": true,
+      "fix": "variable \"data_disk_size_gb\" {\n  type        = number\n  description = \"Size in GB of the runtime's data disk\"\n  default     = 100\n}\n\nvariable \"data_disk_type\" {\n  type        = string\n  description = \"Disk type for the runtime's data disk\"\n  default     = \"PD_STANDARD\"\n}"
+    }
+  ],
+  "suggested_policies": [
+    {
+      "rationale": "google_workbench_instance has no first-class idle-shutdown attribute (unlike google_notebooks_runtime, which defaults to enabled) \u00e2\u20ac\u201d it's configured via gce_setup.metadata[\"idle-timeout-seconds\"], which is easy to simply never set. Not covered by any existing policy for this resource type (only HLD_GCP_230/CMEK and HLD_GCP_231/public-IP exist).",
+      "yaml": "id: HLD_PROPOSED_BP_001\nname: Vertex AI Workbench instances should configure idle-timeout metadata\nprinciple: cost\nseverity: LOW\nrationale: |\n  Vertex AI Workbench instances have no first-class idle-shutdown attribute.\n  Unlike google_notebooks_runtime (which defaults to idle_shutdown = true),\n  a Workbench instance left running has no automatic stop unless\n  gce_setup.metadata[\"idle-timeout-seconds\"] is explicitly set, so an\n  interactive VM left running overnight or over a weekend accrues compute\n  cost with nothing to catch it.\nremediation: |\n  resource \"google_workbench_instance\" \"main\" {\n    gce_setup {\n      metadata = {\n        \"idle-timeout-seconds\" = \"10800\"\n      }\n    }\n  }\nresources:\n  google_workbench_instance:\n    path: gce_setup.metadata.idle-timeout-seconds\n    not_null: true\n"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+id: HLD_GCP_509
+name: Vertex AI Notebooks runtimes and Workbench instances must specify an explicit VPC network
+principle: network-security
+severity: MEDIUM
+rationale: |
+  If virtual_machine_config.network (google_notebooks_runtime) or
+  gce_setup.network_interfaces (google_workbench_instance) is left unset,
+  GCP attaches the VM to the project's default auto-mode VPC network
+  instead of a purpose-built private network. The default network ships
+  with permissive implicit firewall rules (SSH/RDP/ICMP open from
+  0.0.0.0/0 unless the project has explicitly removed them), so a notebook
+  resource placed there inherits a broader attack surface than one
+  deliberately placed on a hardened, isolated network. This is easy to miss
+  because internal_ip_only / disable_public_ip only control whether the VM
+  has an external IP — they say nothing about which VPC it's actually
+  attached to.
+remediation: |
+  resource "google_notebooks_runtime" "main" {
+    virtual_machine {
+      virtual_machine_config {
+        network = google_compute_network.private.id
+        subnet  = google_compute_subnetwork.private.id
+      }
+    }
+  }
+
+  resource "google_workbench_instance" "main" {
+    gce_setup {
+      network_interfaces {
+        network = google_compute_network.private.id
+        subnet  = google_compute_subnetwork.private.id
+      }
+    }
+  }
+resources:
+  google_notebooks_runtime:
+    path: virtual_machine.virtual_machine_config.network
+    not_null: true
+  google_workbench_instance:
+    path: gce_setup.network_interfaces.network
+    not_null: true

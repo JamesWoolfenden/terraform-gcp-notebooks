@@ -2,8 +2,8 @@
 resource "google_notebooks_instance" "main" {
   project      = var.project_id
   location     = var.location
-  name         = "legacy-notebook"
-  machine_type = "n1-standard-4"
+  name         = "${var.name_prefix}legacy-notebook"
+  machine_type = var.machine_type
 
   vm_image {
     project      = "deeplearning-platform-release"
@@ -15,9 +15,14 @@ resource "google_notebooks_instance" "main" {
   no_public_ip    = true
   network         = var.network
   subnet          = var.subnet
+  service_account = google_service_account.notebooks.email
 
   shielded_instance_config {
     enable_vtpm                 = true
     enable_integrity_monitoring = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }

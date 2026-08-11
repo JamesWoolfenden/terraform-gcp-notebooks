@@ -1,0 +1,24 @@
+id: HLD_GCP_510
+name: Vertex AI Workbench instances should configure idle-timeout metadata
+principle: cost
+severity: LOW
+rationale: |
+  Vertex AI Workbench instances have no first-class idle-shutdown attribute.
+  Unlike google_notebooks_runtime (which defaults to idle_shutdown = true
+  with a 180-minute timeout even when software_config is never set), a
+  Workbench instance left running has no automatic stop unless
+  gce_setup.metadata["idle-timeout-seconds"] is explicitly set, so an
+  interactive VM left running overnight or over a weekend accrues compute
+  cost with nothing to catch it.
+remediation: |
+  resource "google_workbench_instance" "main" {
+    gce_setup {
+      metadata = {
+        "idle-timeout-seconds" = "10800"
+      }
+    }
+  }
+resources:
+  google_workbench_instance:
+    path: gce_setup.metadata.idle-timeout-seconds
+    not_null: true
